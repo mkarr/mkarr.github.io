@@ -8,12 +8,12 @@ A while ago, I purchased an inexpensive boroscope/borescope manufactured by DEPS
 
 ### Getting Started
 
-The first step was to packet capture the traffic using an Android packet capture app. What immediately stood out was large amounts of traffic on port 50000. Upon further inspection of this traffic, I saw JFIF magic strings appearing regularly. 
+The first step was to packet capture the traffic using an Android packet capture app. What immediately stood out was large amounts of traffic on port 7060. Upon further inspection of this traffic, I saw JFIF magic strings appearing regularly.
 
 ![Packet Capture 1](/boro_packet_1.png) ![Packet Capture 2](/boro_packet_2.png)
 
 
-These JFIF streams seemed to jump out and scream, "Hey, MJPEG stream here!". That was easy. Thus, my next step was to attempt to play the stream using ffmpeg. However, when doing so, it was quickly apparant that something was not quite right. The stream was choppy and full of artifacts.
+These JFIF strings seemed to jump out and scream, "Hey, MJPEG stream here!". That was easy. Thus, my next step was to attempt to play the stream using ffmpeg. However, when doing so, it was quickly apparant that something was not quite right. The stream was choppy and full of artifacts.
 
 ![Corrupt FFPlay](/boro_ffplay_corrupt.png)
 
@@ -21,11 +21,11 @@ These JFIF streams seemed to jump out and scream, "Hey, MJPEG stream here!". Tha
 
 I decided to Google around to see if anyone else had similar ideas to me. It turns out that [Nathan Henrie](https://n8henrie.com/) and [Matthew Plough](https://mplough.github.io/) had both tackled differnt aspects of the problem. Nathan had dumped firmware images, and decoded the camera preferences and control protocol, and Matthew had begun work on repairing the MJPEG stream.
 
-Rather than duplicate work, I cloned a copy of Matthew's work and managed to build it on my system. It was functional, however the MJPEG stream was not perfect, this I decided to look deeper into the problem.
+Rather than duplicate work, I cloned a copy of Matthew's work and managed to build it on my system. It was functional, however the MJPEG stream was not perfect, thus I decided to look deeper into the problem.
 
 ### Reverse Engineering Firmware
 
-Nathan had already dumped the firmware and gracously provided it for download, and Matthew demonstrated how to dump it using binwalk. Replicating this, I obtained a copy of the `app_cam` binary. These boroscopes are actually full fledged Linux machines, running a MIPS processor and a suprisingly un-stripped-down Busybox environment, it even still had vi installed. This was a good starting point, as the app was a standard ELF formatted binary.
+Nathan had already dumped the firmware and graciously provided it for download, and Matthew demonstrated how to dump it using binwalk. Replicating this, I obtained a copy of the `app_cam` binary. These boroscopes are actually full fledged Linux machines, running a MIPS processor and a suprisingly un-stripped-down Busybox environment, it even still had vi installed. This was a good starting point, as the app was a standard ELF formatted binary.
 
 I loaded the binary into [Ghidra](https://ghidra-sre.org/), the NSA's excellent decompilation tool, without much fuss. After the initial analysis stages, I looked for interesting symbols and exports. Among the more interesting ones, were `uvcGrab()`, `video_capture_thread()`, `video_encode_pass()`, and `video_set_headtail()`.
 
@@ -39,11 +39,11 @@ The `uvcGrab()` symbol name, in combination with some others, and some Googling 
 
 However, in any case, a lot of the control flow and data structures seemed the same. After filling in a bunch of struct and variable type information, and renaming a lot of variables in accordance to what they appeared to be used for when calling the mjpg-streamer and V4L2 code, I was able to identify the main video frame buffer, and size information. This is important as it is used in the `video_encode_pass()` and `video_set_headtail()` functions.
 
-The `video_set_headtail()` function is pretty straightfoward, and Matthew already put some work into this area. It inserts a header and footer around the frame buffer and the start and end frame tags. This header carries 12 values of various 8, 16, and 32 bit types, all repacked for little endianness. The most important of these header parameters is the size value. This is used for the next step, "encoding" MJPEG frame.
+The `video_set_headtail()` function is pretty straightfoward, and Matthew already put some work into this area. It inserts a header and footer around the frame buffer and the start and end frame tags. This header carries 12 values of various 8, 16, and 32 bit types, all repacked for little endianness. The most important of these header parameters is the size value. This is used for the next step, "encoding" the MJPEG frame.
 
 ### Encoding
 
-Immediately after the header and footer are inserted, the `video_encode_pass()` function is called. This appears to be where the juicy bits are going to happen. Or so you would thing. Upon decompilaion, you are presented with the following.
+Immediately after the header and footer are inserted, the `video_encode_pass()` function is called. This appears to be where the juicy bits are going to happen. Or so you would think. Upon decompilaion, you are presented with the following.
 
 ![Ghidra Video Encode](/boro_ghidra_encode.png)
 
