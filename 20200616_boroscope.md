@@ -57,6 +57,51 @@ After this, I pretty much concluded my reverse engineering phase of this project
 
 ![Video Fixed Demo](/boro_fixed.png)
 
+### Updated Firmware (Random Byte Inversion) - 2026/03/28
+
+Newer versions of the camera firmware no longer invert the middle byte of the frame. Instead, the firmware inverts a pseudo-random byte within each MJPEG frame. The index of the byte to invert is calculated using values stored in the frame header.
+
+Two 32-bit little-endian values are present in the header:
+
+* `P1` at byte offset `39`
+* `P2` at byte offset `29`
+
+These values are used to compute the index of the byte that has been inverted.
+
+Example extraction:
+
+```c
+uint32_t invertP1 =
+    (data[39] & 0xff) |
+    ((data[40] & 0xff) << 8) |
+    ((data[41] & 0xff) << 16) |
+    ((data[42] & 0xff) << 24);
+
+uint32_t invertP2 =
+    (data[29] & 0xff) |
+    ((data[30] & 0xff) << 8) |
+    ((data[31] & 0xff) << 16) |
+    ((data[32] & 0xff) << 24);
+```
+
+The firmware calculates the index using the following function (reverse engineered via Ghidra):
+
+```c
+int encodeIndex(uint32_t p1, uint32_t p2) {
+    if (p2 == 0) return 0;
+    return (((p2 ^ p1) + p2 + (~p2 & 1)) ^ p2) % p2;
+}
+```
+
+The returned value is the index of the byte in the MJPEG frame that must be inverted to restore the correct image:
+
+```c
+frame[index] ^= 0xFF;
+```
+
+This change explains why corruption in newer firmware appears at different positions in each frame instead of consistently in the center.
+
+Based on analysis of newer firmware by [Deebash Dharmalingam](https://github.com/deebash).
 
 ---
 
